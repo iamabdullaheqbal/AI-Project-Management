@@ -9,6 +9,9 @@ let currentProjectId: string | null = null;
 type MessageHandler = (payload: { type: string; content?: string; commands?: unknown[] }) => void;
 const handlers: Set<MessageHandler> = new Set();
 
+type StatusHandler = (status: "open" | "close" | "error") => void;
+const statusHandlers: Set<StatusHandler> = new Set();
+
 export function getSocket(projectId: string): WebSocket {
   if (socket && socket.readyState === WebSocket.OPEN && currentProjectId === projectId) {
     return socket;
@@ -22,8 +25,21 @@ export function getSocket(projectId: string): WebSocket {
   }
 
   currentProjectId = projectId;
-  // Token passed as query param — required by backend WS auth
   socket = new WebSocket(`${WS_BASE}/ws/chat/${projectId}?token=${encodeURIComponent(token)}`);
+
+  socket.onopen = () => {
+    statusHandlers.forEach((h) => h("open"));
+  };
+
+  socket.onclose = () => {
+    statusHandlers.forEach((h) => h("close"));
+  };
+
+  // Absorb the native ErrorEvent — never let it propagate as an unhandled rejection
+  socket.onerror = (_event: Event) => {
+    statusHandlers.forEach((h) => h("error"));
+    handlers.forEach((h) => h({ type: "error", content: "Connection error" }));
+  };
 
   socket.onmessage = (event) => {
     try {
@@ -34,16 +50,17 @@ export function getSocket(projectId: string): WebSocket {
     }
   };
 
-  socket.onerror = () => {
-    handlers.forEach((h) => h({ type: "error", content: "Connection error" }));
-  };
-
   return socket;
 }
 
 export function onSocketMessage(handler: MessageHandler): () => void {
   handlers.add(handler);
   return () => handlers.delete(handler);
+}
+
+export function onSocketStatus(handler: StatusHandler): () => void {
+  statusHandlers.add(handler);
+  return () => statusHandlers.delete(handler);
 }
 
 export function sendSocketMessage(payload: object): boolean {
@@ -60,6 +77,10 @@ export function isSocketConnected(): boolean {
 
 export function disconnectSocket(): void {
   if (socket) {
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
     socket.close();
     socket = null;
     currentProjectId = null;

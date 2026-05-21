@@ -78,7 +78,7 @@ def build_prompt(
     return messages
 
 
-async def call_mistral(messages: list[dict]) -> str:
+async def call_mistral(messages: list[dict], max_tokens: int = 1024) -> str:
     """
     Call mistral-large-latest asynchronously.
     Returns the response text string.
@@ -90,7 +90,7 @@ async def call_mistral(messages: list[dict]) -> str:
             model="mistral-large-latest",
             messages=messages,
             temperature=0.3,
-            max_tokens=1024,
+            max_tokens=max_tokens,
         )
         content = response.choices[0].message.content or ""
         logger.debug(

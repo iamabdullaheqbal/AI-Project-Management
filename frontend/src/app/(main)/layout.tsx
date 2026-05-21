@@ -1,10 +1,13 @@
+"use client";
+
 import { AppSidebar } from "@/components/AppSidebar";
 import { AuthGuard } from "@/components/AuthGuard";
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen w-full">
+      {/* suppressHydrationWarning tolerates browser-extension injected nodes (e.g. screen-reader sections) */}
+      <div className="flex min-h-screen w-full" suppressHydrationWarning>
         <AppSidebar />
         <div className="flex flex-1 flex-col min-w-0">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/80 backdrop-blur px-4">

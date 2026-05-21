@@ -1,9 +1,24 @@
 "use client";
 
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useDashboard, useCriticalTasks, useBlockers, useTeam, useProjects, type Task } from "@/lib/queries";
-import { CheckCircle2, Clock, AlertTriangle, ListTodo, Sparkles, Calendar, ShieldAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  useDashboard, useCriticalTasks, useBlockers, useTeam,
+  useProjects, useCreateProject, type Task,
+} from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  CheckCircle2, Clock, AlertTriangle, ListTodo,
+  Sparkles, Calendar, ShieldAlert, Plus,
+} from "lucide-react";
 import {
   RadialBarChart, RadialBar, PolarAngleAxis, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -21,11 +36,9 @@ function priorityClass(label: string) {
   }
 }
 
-function initials(name: string) {
-  return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
-}
-
-function Metric({ label, value, icon: Icon, hint, tone }: { label: string; value: string; icon: React.ElementType; hint: string; tone: string }) {
+function Metric({ label, value, icon: Icon, hint, tone }: {
+  label: string; value: string; icon: React.ElementType; hint: string; tone: string;
+}) {
   return (
     <Card className="p-5">
       <div className="flex items-start justify-between">
@@ -42,10 +55,66 @@ function Metric({ label, value, icon: Icon, hint, tone }: { label: string; value
   );
 }
 
+function CreateProjectDialog({
+  open, onOpenChange,
+}: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const qc = useQueryClient();
+  const createProject = useCreateProject();
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+
+  const handleSubmit = async () => {
+    if (!name.trim()) return;
+    await createProject.mutateAsync({ name: name.trim(), description: desc.trim() || undefined });
+    // Force an immediate refetch so the new project appears right away
+    await qc.refetchQueries({ queryKey: ["projects"] });
+    setName(""); setDesc("");
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-serif">New project</DialogTitle>
+          <DialogDescription>Give your project a name to get started.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Apollo Launch"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Input
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="What is this project about?"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={!name.trim() || createProject.isPending}>
+            {createProject.isPending ? "Creating…" : "Create project"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const projectId = projects?.[0]?.id ?? "";
+  const [showCreate, setShowCreate] = useState(false);
 
   const { data: dash, isLoading: dashLoading } = useDashboard(projectId);
   const { data: critical, isLoading: critLoading } = useCriticalTasks(projectId);
@@ -67,14 +136,24 @@ export default function Dashboard() {
   if (!projectId) {
     return (
       <div className="p-6 lg:p-8">
-        <EmptyState title="No projects yet" description="Create your first project to get started." />
+        <EmptyState
+          title="No projects yet"
+          description="Create your first project to get started."
+          action={
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4 mr-1" /> New project
+            </Button>
+          }
+        />
+        <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} />
       </div>
     );
   }
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      {/* Header */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Calendar className="h-4 w-4" /> {today}
@@ -84,23 +163,29 @@ export default function Dashboard() {
           </h1>
           <p className="mt-1 text-muted-foreground">Here&apos;s how the team is doing today.</p>
         </div>
-        <Card className="max-w-xl p-4 bg-accent/50 border-primary/15">
-          <div className="flex gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Sparkles className="h-4 w-4" />
+        <div className="flex flex-col gap-3 lg:items-end">
+          <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 mr-1" /> New project
+          </Button>
+          <Card className="max-w-sm p-4 bg-accent/50 border-primary/15">
+            <div className="flex gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-primary">AI tip</p>
+                <p className="text-sm mt-1">
+                  {dash && dash.overdue + dash.blocked > 0
+                    ? `${dash.overdue} overdue and ${dash.blocked} blocked. Clear blockers first.`
+                    : "All clear — a great day to ship something new."}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-primary">AI tip of the day</p>
-              <p className="text-sm mt-1">
-                {dash && dash.overdue + dash.blocked > 0
-                  ? `You have ${dash.overdue} overdue and ${dash.blocked} blocked task${dash.blocked === 1 ? "" : "s"}. Clear blockers before starting new work.`
-                  : "All clear — a great day to ship something new."}
-              </p>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
       </div>
 
+      {/* Metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {dashLoading || !dash ? (
           <><CardSkeleton /><CardSkeleton /><CardSkeleton /><CardSkeleton /></>
@@ -114,6 +199,7 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Blockers alert */}
       {!blkLoading && blockers && blockers.length > 0 && (
         <Card className="p-4 border-destructive/30 bg-destructive/5">
           <div className="flex items-start gap-3">
@@ -132,6 +218,7 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="p-6">
           <h2 className="font-serif text-xl font-semibold">Completion</h2>
@@ -174,31 +261,39 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Critical tasks */}
       <Card className="p-6">
         <div className="mb-4">
           <h2 className="font-serif text-xl font-semibold">Critical tasks</h2>
           <p className="text-sm text-muted-foreground">Highest priority score</p>
         </div>
         {critLoading ? (
-          <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 bg-muted/60 rounded animate-pulse" />)}</div>
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-12 bg-muted/60 rounded animate-pulse" />
+            ))}
+          </div>
         ) : !critical || critical.length === 0 ? (
-          <EmptyState title="Nothing critical" description="You&apos;re all caught up — great work." />
+          <EmptyState title="Nothing critical" description="You're all caught up — great work." />
         ) : (
           <div className="divide-y divide-border">
             {critical.map((t: Task) => (
               <div key={t.id} className="flex items-center gap-4 py-3">
-                <Badge variant="outline" className={`${priorityClass(t.priority_label)} font-medium text-[10px]`}>{t.priority_label.toUpperCase()}</Badge>
+                <Badge variant="outline" className={`${priorityClass(t.priority_label)} font-medium text-[10px]`}>
+                  {t.priority_label.toUpperCase()}
+                </Badge>
                 <p className="flex-1 text-sm font-medium truncate">{t.title}</p>
                 <span className="hidden sm:inline text-xs text-muted-foreground">{t.tag}</span>
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-primary text-[10px] font-semibold">
-                  {t.assignee_id ? t.assignee_id.slice(0, 2).toUpperCase() : "??"}
-                </div>
-                <span className="text-xs font-mono w-12 text-right text-primary">{t.score?.final.toFixed(2) ?? t.priority_score.toFixed(2)}</span>
+                <span className="text-xs font-mono w-12 text-right text-primary">
+                  {t.score?.final.toFixed(2) ?? t.priority_score.toFixed(2)}
+                </span>
               </div>
             ))}
           </div>
         )}
       </Card>
+
+      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} />
     </div>
   );
 }

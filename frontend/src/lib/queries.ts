@@ -73,7 +73,8 @@ export const useProjects = () =>
   useQuery<Project[]>({
     queryKey: ["projects"],
     queryFn: async () => (await api.get("/projects")).data,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
 export const useCreateProject = () => {
