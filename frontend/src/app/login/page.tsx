@@ -14,8 +14,8 @@ import { toast } from "sonner";
 export default function LoginPage() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
-  const [email, setEmail] = useState("alex@flowmind.app");
-  const [password, setPassword] = useState("demo");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -24,19 +24,14 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { data } = await api.post("/auth/login", { email, password });
-      login(data.access_token, data.user);
+      login(data.access_token, data.refresh_token, data.user);
       toast.success("Welcome back");
       router.push("/");
-    } catch {
-      // fallback: demo mode when backend is offline
-      login("demo-token", {
-        id: "u1",
-        name: email.split("@")[0] || "User",
-        email,
-        role: "Product Lead",
-      });
-      toast.success("Welcome back (demo mode)");
-      router.push("/");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Invalid credentials";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -56,19 +51,32 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="you@example.com"
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="••••••••"
+              />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in…" : "Sign in"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-xs text-muted-foreground">
-            Demo credentials: alex@flowmind.app / demo
-          </p>
         </Card>
       </div>
     </div>

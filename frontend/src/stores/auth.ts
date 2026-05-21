@@ -1,3 +1,5 @@
+"use client";
+
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -10,8 +12,9 @@ export interface User {
 
 interface AuthState {
   token: string | null;
+  refreshToken: string | null;
   user: User | null;
-  login: (token: string, user: User) => void;
+  login: (token: string, refreshToken: string, user: User) => void;
   logout: () => void;
   isAuthenticated: () => boolean;
 }
@@ -19,16 +22,11 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      // Pre-authenticated demo session so the preview works without a backend.
-      token: "demo-token",
-      user: {
-        id: "u1",
-        name: "Alex Morgan",
-        email: "alex@flowmind.app",
-        role: "Product Lead",
-      },
-      login: (token, user) => set({ token, user }),
-      logout: () => set({ token: null, user: null }),
+      token: null,
+      refreshToken: null,
+      user: null,
+      login: (token, refreshToken, user) => set({ token, refreshToken, user }),
+      logout: () => set({ token: null, refreshToken: null, user: null }),
       isAuthenticated: () => !!get().token,
     }),
     { name: "flowmind-auth" },

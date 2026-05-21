@@ -1,37 +1,113 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, withMockFallback } from "./api";
-import { initialTasks, team, type Task } from "./mock-data";
+import { api } from "./api";
+import { toast } from "sonner";
 
-export const DEFAULT_PROJECT_ID = "default";
+// ---------------------------------------------------------------------------
+// Types (matching backend TaskOut / MemberWorkloadOut shapes)
+// ---------------------------------------------------------------------------
 
-// ---------- TASKS ----------
-export const useTasks = (projectId: string = DEFAULT_PROJECT_ID) =>
-  useQuery({
+export interface PriorityBreakdown {
+  urgency: number;
+  complexity: number;
+  blocking: number;
+  staleness: number;
+  final: number;
+}
+
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  description?: string;
+  assignee_id?: string;
+  status: "todo" | "in_progress" | "done" | "blocked";
+  priority_score: number;
+  priority_label: "low" | "medium" | "high" | "critical";
+  due_date?: string;
+  complexity: number;
+  dependencies: string[];
+  tag?: string;
+  created_at: string;
+  updated_at: string;
+  score?: PriorityBreakdown;
+}
+
+export interface Member {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+  assigned: number;
+  capacity: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DashboardStats {
+  total: number;
+  done: number;
+  inProgress: number;
+  overdue: number;
+  blocked: number;
+  completion: number;
+  total_tasks: number;
+  todo_count: number;
+  in_progress_count: number;
+  done_count: number;
+  blocked_count: number;
+  completion_percentage: number;
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export const useProjects = () =>
+  useQuery<Project[]>({
+    queryKey: ["projects"],
+    queryFn: async () => (await api.get("/projects")).data,
+    staleTime: 60_000,
+  });
+
+export const useCreateProject = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; description?: string }) =>
+      api.post<Project>("/projects", body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+    onError: () => toast.error("Failed to create project"),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+export const useTasks = (projectId: string) =>
+  useQuery<Task[]>({
     queryKey: ["tasks", projectId],
-    queryFn: () =>
-      withMockFallback<Task[]>(
-        async () => (await api.get(`/tasks/${projectId}`)).data,
-        () => initialTasks,
-      ),
+    queryFn: async () => (await api.get(`/tasks/${projectId}`)).data,
     staleTime: 30_000,
+    enabled: !!projectId,
   });
 
 export const useCreateTask = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (task: Partial<Task>) =>
-      withMockFallback<Task>(
-        async () => (await api.post("/tasks", task)).data,
-        () => ({ ...(task as Task), id: `t${Date.now()}` }),
-      ),
-    onSuccess: (_d, vars) => {
-      qc.invalidateQueries({ queryKey: ["tasks"] });
-      // optimistic local insert when offline
-      qc.setQueryData<Task[]>(["tasks", DEFAULT_PROJECT_ID], (old = []) => [
-        { ...(vars as Task), id: `t${Date.now()}` } as Task,
-        ...old,
-      ]);
+    mutationFn: (task: Partial<Task> & { project_id: string }) =>
+      api.post<Task>("/tasks", task).then((r) => r.data),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["tasks", vars.project_id] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+    onError: () => toast.error("Failed to create task"),
   });
 };
 
@@ -39,85 +115,79 @@ export const useUpdateTask = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...patch }: Partial<Task> & { id: string }) =>
-      withMockFallback<Task>(
-        async () => (await api.put(`/tasks/${id}`, patch)).data,
-        () => ({ ...(patch as Task), id }),
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
+      api.put<Task>(`/tasks/${id}`, patch).then((r) => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["tasks", data.project_id] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: () => toast.error("Failed to update task"),
   });
 };
 
-// ---------- DASHBOARD ----------
-export const useDashboard = (projectId: string = DEFAULT_PROJECT_ID) =>
-  useQuery({
+export const useDeleteTask = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/tasks/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: () => toast.error("Failed to delete task"),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+export const useDashboard = (projectId: string) =>
+  useQuery<DashboardStats>({
     queryKey: ["dashboard", projectId],
-    queryFn: () =>
-      withMockFallback(
-        async () => (await api.get(`/dashboard/${projectId}`)).data,
-        () => {
-          const total = initialTasks.length;
-          const done = initialTasks.filter((t) => t.status === "Done").length;
-          const inProgress = initialTasks.filter((t) => t.status === "In Progress").length;
-          const overdue = initialTasks.filter((t) => t.due === "Overdue").length;
-          const blocked = initialTasks.filter((t) => t.status === "Blocked").length;
-          return {
-            total,
-            done,
-            inProgress,
-            overdue,
-            blocked,
-            completion: Math.round((done / total) * 100),
-          };
-        },
-      ),
+    queryFn: async () => (await api.get(`/dashboard/${projectId}`)).data,
     staleTime: 30_000,
+    enabled: !!projectId,
   });
 
-export const useCriticalTasks = (projectId: string = DEFAULT_PROJECT_ID) =>
-  useQuery({
+export const useCriticalTasks = (projectId: string) =>
+  useQuery<Task[]>({
     queryKey: ["dashboard", projectId, "critical"],
-    queryFn: () =>
-      withMockFallback<Task[]>(
-        async () => (await api.get(`/dashboard/${projectId}/critical`)).data,
-        () =>
-          [...initialTasks]
-            .sort((a, b) => b.score.final - a.score.final)
-            .slice(0, 6),
-      ),
+    queryFn: async () => (await api.get(`/dashboard/${projectId}/critical`)).data,
     staleTime: 30_000,
+    enabled: !!projectId,
   });
 
-export const useBlockers = (projectId: string = DEFAULT_PROJECT_ID) =>
-  useQuery({
+export const useBlockers = (projectId: string) =>
+  useQuery<Task[]>({
     queryKey: ["dashboard", projectId, "blockers"],
-    queryFn: () =>
-      withMockFallback<Task[]>(
-        async () => (await api.get(`/dashboard/${projectId}/blockers`)).data,
-        () => initialTasks.filter((t) => t.status === "Blocked" || t.due === "Overdue"),
-      ),
+    queryFn: async () => (await api.get(`/dashboard/${projectId}/blockers`)).data,
     staleTime: 30_000,
+    enabled: !!projectId,
   });
 
-// ---------- TEAM ----------
-import type { Member } from "./mock-data";
+// ---------------------------------------------------------------------------
+// Team
+// ---------------------------------------------------------------------------
+
 export const useTeam = () =>
-  useQuery({
+  useQuery<Member[]>({
     queryKey: ["team"],
-    queryFn: () =>
-      withMockFallback<Member[]>(
-        async () => (await api.get("/team")).data,
-        () => team,
-      ),
+    queryFn: async () => (await api.get("/team")).data,
     staleTime: 60_000,
   });
 
-// ---------- CHAT HISTORY ----------
-export const useChatHistory = (projectId: string = DEFAULT_PROJECT_ID) =>
+// ---------------------------------------------------------------------------
+// Chat history
+// ---------------------------------------------------------------------------
+
+export const useChatHistory = (projectId: string) =>
   useQuery({
     queryKey: ["chat", projectId],
-    queryFn: () =>
-      withMockFallback(
-        async () => (await api.get(`/chat/history/${projectId}`)).data,
-        () => [] as Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: number }>,
-      ),
+    queryFn: async () =>
+      (await api.get(`/chat/history/${projectId}`)).data as Array<{
+        id: string;
+        role: "user" | "assistant";
+        content: string;
+        timestamp: number;
+      }>,
+    enabled: !!projectId,
   });

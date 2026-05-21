@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Sparkles, Send, User, Wifi, WifiOff } from "lucide-react";
 import { getSocket, onSocketMessage, sendSocketMessage, isSocketConnected, disconnectSocket } from "@/lib/socket";
 import { useChatStore } from "@/stores/chat";
-import { useChatHistory, DEFAULT_PROJECT_ID } from "@/lib/queries";
+import { useChatHistory, useProjects } from "@/lib/queries";
 
 const SUGGESTIONS = [
   "What is blocking deployment?",
@@ -18,7 +18,8 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatPage() {
-  const projectId = DEFAULT_PROJECT_ID;
+  const { data: projects } = useProjects();
+  const projectId = projects?.[0]?.id ?? "";
   const { messages, typing, addMessage, setMessages, setTyping } = useChatStore();
   const history = useChatHistory(projectId);
   const [input, setInput] = useState("");
