@@ -160,6 +160,10 @@ async def websocket_chat(
                 continue
 
             user_content: str = (data.get("content") or "").strip()
+            response_style: str = data.get("response_style", "concise")
+            if response_style not in ("concise", "detailed"):
+                response_style = "concise"
+
             if not user_content or len(user_content) > 10_000:
                 await manager.send(websocket, {"type": "error", "content": "Message must be 1-10000 chars"})
                 continue
@@ -208,8 +212,9 @@ async def websocket_chat(
                     user_message=user_content,
                     retrieved_docs=retrieved_docs,
                     chat_history=chat_history,
+                    response_style=response_style,
                 )
-                reply = await call_mistral(messages)
+                reply = await call_mistral(messages, response_style=response_style)
 
                 # Step 5: Parse and execute task commands
                 task_results: list[dict] = []
@@ -280,8 +285,8 @@ async def chat_message(
     ]
 
     retrieved_docs = await retrieve_context(body.content, body.project_id, db, top_k=5)
-    messages = build_prompt(body.content, retrieved_docs, chat_history)
-    reply = await call_mistral(messages)
+    messages = build_prompt(body.content, retrieved_docs, chat_history, response_style=body.response_style)
+    reply = await call_mistral(messages, response_style=body.response_style)
 
     for role, content in [("user", body.content), ("assistant", reply)]:
         db.add(ChatMessage(

@@ -34,7 +34,7 @@ function LoginPage() {
       // POST /auth/login would normally return a JWT. Mock it here.
       await new Promise((r) => setTimeout(r, 400));
       const token = "demo-jwt-token";
-      login(token, {
+      login(token, "demo-refresh-token", {
         id: "u1",
         name: email.split("@")[0] || "User",
         email,

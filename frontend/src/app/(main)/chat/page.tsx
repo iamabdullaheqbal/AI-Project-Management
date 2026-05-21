@@ -11,6 +11,7 @@ import {
   sendSocketMessage, disconnectSocket, isSocketConnected,
 } from "@/lib/socket";
 import { useChatStore } from "@/stores/chat";
+import { useSettingsStore } from "@/stores/settings";
 import { useChatHistory, useProjects, type Project } from "@/lib/queries";
 import { EmptyState } from "@/components/EmptyState";
 import Link from "next/link";
@@ -40,6 +41,7 @@ export default function ChatPage() {
   const projectId = activeProject?.id ?? "";
 
   const { messages, typing, addMessage, setMessages, setTyping } = useChatStore();
+  const { responseStyle } = useSettingsStore();
   const history = useChatHistory(projectId);
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
@@ -119,7 +121,7 @@ export default function ChatPage() {
     setInput("");
     setTyping(true);
 
-    const sent = sendSocketMessage({ content, project_id: projectId });
+    const sent = sendSocketMessage({ content, project_id: projectId, response_style: responseStyle });
 
     if (!sent) {
       setTimeout(() => {

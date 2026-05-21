@@ -4,6 +4,9 @@ import { useAuthStore } from "@/stores/auth";
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Auth endpoints that should never have a token attached or trigger refresh
+const AUTH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh"];
+
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10_000,
@@ -11,16 +14,20 @@ export const api = axios.create({
   withCredentials: false,
 });
 
-// Attach JWT to every request
+// Attach JWT to every request — skip auth endpoints so login/register are clean
 api.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  const url = config.url ?? "";
+  if (!AUTH_PATHS.some((p) => url.includes(p))) {
+    const token = useAuthStore.getState().token;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
   return config;
 });
 
-// Handle 401 — attempt token refresh, then logout
+// Handle 401 — attempt silent token refresh, then logout
+// Auth endpoints are excluded so their 401s (wrong password etc.) pass through directly
 let isRefreshing = false;
 let refreshQueue: Array<(token: string) => void> = [];
 
@@ -28,6 +35,12 @@ api.interceptors.response.use(
   (r) => r,
   async (err: AxiosError) => {
     const original = err.config as typeof err.config & { _retry?: boolean };
+    const url = original?.url ?? "";
+
+    // Let auth endpoint errors bubble up unchanged
+    if (AUTH_PATHS.some((p) => url.includes(p))) {
+      return Promise.reject(err);
+    }
 
     if (err.response?.status === 401 && !original?._retry) {
       const { refreshToken, login, logout } = useAuthStore.getState();

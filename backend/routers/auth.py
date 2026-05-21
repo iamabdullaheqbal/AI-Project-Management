@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -22,8 +22,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
-    if result.scalar_one_or_none():
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email).limit(1))
+    if result.scalars().first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
     user = User(
@@ -46,10 +46,18 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
-    user = result.scalar_one_or_none()
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email))
+    matching_users = result.scalars().all()
+    user = next(
+        (
+            candidate
+            for candidate in matching_users
+            if verify_password(body.password, candidate.hashed_password)
+        ),
+        None,
+    )
 
-    if not user or not verify_password(body.password, user.hashed_password):
+    if not user:
         # Log failed attempt without exposing which field was wrong
         logger.warning(
             "Failed login attempt for email=%s from ip=%s",
@@ -81,4 +89,25 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=UserOut)
 async def me(current_user: User = Depends(get_current_user)):
+    return UserOut.model_validate(current_user)
+
+
+@router.put("/me", response_model=UserOut)
+async def update_me(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    name = str(body.get("name", "")).strip()
+    role = str(body.get("role", "")).strip()
+
+    if name:
+        current_user.name = name[:120]
+    if role:
+        current_user.role = role[:80]
+
+    db.add(current_user)
+    await db.flush()
+    await db.refresh(current_user)
+    logger.info("User %s updated profile", current_user.email)
     return UserOut.model_validate(current_user)

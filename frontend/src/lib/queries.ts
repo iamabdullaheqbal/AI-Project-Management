@@ -33,12 +33,14 @@ export interface Task {
 }
 
 export interface Member {
-  id: string;
+  id: string;          // membership id
+  user_id: string;
   name: string;
-  role: string;
-  status: string;
+  email: string;
+  team_role: string;
   assigned: number;
   capacity: number;
+  joined_at: string;
 }
 
 export interface Project {
@@ -169,12 +171,64 @@ export const useBlockers = (projectId: string) =>
 // Team
 // ---------------------------------------------------------------------------
 
+export const TEAM_ROLES = ["Owner", "Manager", "Developer", "Designer", "QA", "DevOps", "Analyst", "Member"];
+
 export const useTeam = () =>
   useQuery<Member[]>({
     queryKey: ["team"],
     queryFn: async () => (await api.get("/team")).data,
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
+
+export const useProjectTeam = (projectId: string) =>
+  useQuery<Member[]>({
+    queryKey: ["team", projectId],
+    queryFn: async () => (await api.get(`/team/${projectId}`)).data,
+    staleTime: 30_000,
+    enabled: !!projectId,
+  });
+
+export const useInviteMember = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { project_id: string; email: string; team_role: string }) =>
+      api.post<Member>(`/team/${body.project_id}/invite`, body).then((r) => r.data),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["team", vars.project_id] });
+      qc.invalidateQueries({ queryKey: ["team"] }); // refresh dashboard chart
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Failed to invite member";
+      toast.error(msg);
+    },
+  });
+};
+
+export const useUpdateMemberRole = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, memberId, team_role }: { projectId: string; memberId: string; team_role: string }) =>
+      api.put<Member>(`/team/${projectId}/members/${memberId}`, { team_role }).then((r) => r.data),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["team", vars.projectId] });
+      qc.invalidateQueries({ queryKey: ["team"] });
+    },
+    onError: () => toast.error("Failed to update role"),
+  });
+};
+
+export const useRemoveMember = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, memberId }: { projectId: string; memberId: string }) =>
+      api.delete(`/team/${projectId}/members/${memberId}`),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["team", vars.projectId] });
+      qc.invalidateQueries({ queryKey: ["team"] });
+    },
+    onError: () => toast.error("Failed to remove member"),
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Chat history

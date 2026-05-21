@@ -24,7 +24,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except ValueError:
+        logger.warning("Password verification failed because the stored hash is invalid")
+        return False
 
 
 def create_access_token(subject: str) -> str:

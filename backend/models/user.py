@@ -21,3 +21,4 @@ class User(Base):
 
     tasks = relationship("Task", back_populates="assignee", foreign_keys="Task.assignee_id")
     projects = relationship("Project", back_populates="owner")
+    memberships = relationship("ProjectMember", back_populates="user")

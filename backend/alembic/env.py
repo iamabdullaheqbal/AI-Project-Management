@@ -13,6 +13,7 @@ import models.project  # noqa: F401
 import models.task  # noqa: F401
 import models.chat_message  # noqa: F401
 import models.document_embedding  # noqa: F401
+import models.project_member  # noqa: F401
 
 config = context.config
 # Escape % signs for configparser interpolation, but use the raw URL for SQLAlchemy
