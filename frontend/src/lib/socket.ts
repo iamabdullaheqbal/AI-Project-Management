@@ -1,24 +1,57 @@
-import { io, type Socket } from "socket.io-client";
 import { API_BASE_URL } from "./api";
 
-let socket: Socket | null = null;
+// Convert http(s) base URL to ws(s)
+const WS_BASE = API_BASE_URL.replace(/^http/, "ws");
 
-export function getSocket(projectId: string): Socket {
-  if (socket && socket.connected) return socket;
-  // ws://localhost:8000/ws/chat/{project_id}
-  socket = io(`${API_BASE_URL}/ws/chat/${projectId}`, {
-    transports: ["websocket"],
-    autoConnect: true,
-    reconnection: true,
-    reconnectionAttempts: 3,
-    timeout: 4000,
-  });
+let socket: WebSocket | null = null;
+let currentProjectId: string | null = null;
+
+type MessageHandler = (payload: { type: string; content?: string }) => void;
+const handlers: Set<MessageHandler> = new Set();
+
+export function getSocket(projectId: string): WebSocket {
+  if (socket && socket.readyState === WebSocket.OPEN && currentProjectId === projectId) {
+    return socket;
+  }
+
+  disconnectSocket();
+
+  currentProjectId = projectId;
+  socket = new WebSocket(`${WS_BASE}/ws/chat/${projectId}`);
+
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      handlers.forEach((h) => h(data));
+    } catch {
+      // ignore malformed messages
+    }
+  };
+
   return socket;
+}
+
+export function onSocketMessage(handler: MessageHandler): () => void {
+  handlers.add(handler);
+  return () => handlers.delete(handler);
+}
+
+export function sendSocketMessage(payload: object) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(payload));
+    return true;
+  }
+  return false;
+}
+
+export function isSocketConnected(): boolean {
+  return socket !== null && socket.readyState === WebSocket.OPEN;
 }
 
 export function disconnectSocket() {
   if (socket) {
-    socket.disconnect();
+    socket.close();
     socket = null;
+    currentProjectId = null;
   }
 }

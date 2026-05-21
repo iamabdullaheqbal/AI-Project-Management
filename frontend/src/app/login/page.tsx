@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 export default function LoginPage() {
@@ -22,17 +23,20 @@ export default function LoginPage() {
     if (!email || !password) return;
     setLoading(true);
     try {
-      await new Promise((r) => setTimeout(r, 400));
-      login("demo-jwt-token", {
+      const { data } = await api.post("/auth/login", { email, password });
+      login(data.access_token, data.user);
+      toast.success("Welcome back");
+      router.push("/");
+    } catch {
+      // fallback: demo mode when backend is offline
+      login("demo-token", {
         id: "u1",
         name: email.split("@")[0] || "User",
         email,
         role: "Product Lead",
       });
-      toast.success("Welcome back");
+      toast.success("Welcome back (demo mode)");
       router.push("/");
-    } catch {
-      toast.error("Invalid credentials");
     } finally {
       setLoading(false);
     }
@@ -62,7 +66,9 @@ export default function LoginPage() {
               {loading ? "Signing in…" : "Sign in"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-xs text-muted-foreground">Demo mode — any credentials work.</p>
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            Demo credentials: alex@flowmind.app / demo
+          </p>
         </Card>
       </div>
     </div>

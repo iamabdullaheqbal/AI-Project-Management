@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sparkles, Send, User, Wifi, WifiOff } from "lucide-react";
-import { getSocket, disconnectSocket } from "@/lib/socket";
+import { getSocket, onSocketMessage, sendSocketMessage, isSocketConnected, disconnectSocket } from "@/lib/socket";
 import { useChatStore } from "@/stores/chat";
 import { useChatHistory, DEFAULT_PROJECT_ID } from "@/lib/queries";
 
@@ -17,16 +17,6 @@ const SUGGESTIONS = [
   "Who has the most tasks?",
 ];
 
-function mockReply(prompt: string): string {
-  const p = prompt.toLowerCase();
-  if (p.includes("block")) return "Two deployment blockers right now:\n\n1. **Database backups** — nightly job has failed 3 nights running. Daniel Park is on it.\n2. **API rate limiting** — awaiting platform team sign-off on the Redis cluster.\n\nUnblocking these clears the critical path to release.";
-  if (p.includes("focus") || p.includes("today")) return "Top focus for today:\n\n• Resolve the **production payment outage** (score 0.91)\n• Push the **beta launch** invites — currently overdue\n• Sara to finalize the onboarding redesign for tomorrow's review";
-  if (p.includes("critical")) return "Three tasks have a priority score above 0.85:\n\n1. **Fix production payment outage** (0.91) — high urgency, blocking revenue\n2. **Launch beta to design partners** (0.92) — overdue, high staleness\n3. **Database backups not running** (0.89) — critical infra risk";
-  if (p.includes("week") || p.includes("progress")) return "This week the team closed **12 tasks**, against a planned 14. Velocity is healthy.\n\nOverall sprint completion: **72%**.";
-  if (p.includes("most tasks") || p.includes("who")) return "Daniel Park has the heaviest load right now: **9 of 10 capacity**, with 2 blocked items.";
-  return "I'm running in offline demo mode — connect the FastAPI backend at ws://localhost:8000 to get live answers grounded in your project data.";
-}
-
 export default function ChatPage() {
   const projectId = DEFAULT_PROJECT_ID;
   const { messages, typing, addMessage, setMessages, setTyping } = useChatStore();
@@ -36,33 +26,47 @@ export default function ChatPage() {
   const endRef = useRef<HTMLDivElement>(null);
   const list = messages[projectId] ?? [];
 
+  // Hydrate from history once
   useEffect(() => {
     if (history.data && (messages[projectId]?.length ?? 0) === 0) {
       const seed = history.data.length > 0
         ? history.data
-        : [{ id: "intro", role: "assistant" as const, content: "Hi Alex — I'm FlowMind. Ask me about your project's priorities, blockers, or team load.", timestamp: Date.now() }];
+        : [{ id: "intro", role: "assistant" as const, content: "Hi — I'm FlowMind. Ask me about your project's priorities, blockers, or team load.", timestamp: Date.now() }];
       setMessages(projectId, seed);
     }
   }, [history.data, projectId, messages, setMessages]);
 
+  // WebSocket lifecycle
   useEffect(() => {
-    const socket = getSocket(projectId);
-    const onConnect = () => setConnected(true);
-    const onDisconnect = () => setConnected(false);
-    const onMessage = (payload: { content: string }) => {
-      setTyping(false);
-      addMessage(projectId, { id: `m${Date.now()}`, role: "assistant", content: payload.content, timestamp: Date.now() });
-    };
-    const onTyping = () => setTyping(true);
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-    socket.on("message", onMessage);
-    socket.on("typing", onTyping);
+    const ws = getSocket(projectId);
+
+    const onOpen = () => setConnected(true);
+    const onClose = () => setConnected(false);
+
+    ws.addEventListener("open", onOpen);
+    ws.addEventListener("close", onClose);
+
+    // Check if already open
+    if (ws.readyState === WebSocket.OPEN) setConnected(true);
+
+    const unsub = onSocketMessage((payload) => {
+      if (payload.type === "typing") {
+        setTyping(true);
+      } else if (payload.type === "message" && payload.content) {
+        setTyping(false);
+        addMessage(projectId, {
+          id: `m${Date.now()}`,
+          role: "assistant",
+          content: payload.content,
+          timestamp: Date.now(),
+        });
+      }
+    });
+
     return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-      socket.off("message", onMessage);
-      socket.off("typing", onTyping);
+      ws.removeEventListener("open", onOpen);
+      ws.removeEventListener("close", onClose);
+      unsub();
       disconnectSocket();
     };
   }, [projectId, addMessage, setTyping]);
@@ -74,18 +78,27 @@ export default function ChatPage() {
   const send = (text?: string) => {
     const content = (text ?? input).trim();
     if (!content || typing) return;
+
     addMessage(projectId, { id: `m${Date.now()}`, role: "user", content, timestamp: Date.now() });
     setInput("");
     setTyping(true);
-    const socket = getSocket(projectId);
-    if (socket.connected) {
-      socket.emit("message", { content, project_id: projectId });
-      setTimeout(() => setTyping(false), 12000);
-    } else {
+
+    const sent = sendSocketMessage({ content, project_id: projectId });
+
+    if (!sent) {
+      // Offline fallback
       setTimeout(() => {
         setTyping(false);
-        addMessage(projectId, { id: `m${Date.now() + 1}`, role: "assistant", content: mockReply(content), timestamp: Date.now() });
+        addMessage(projectId, {
+          id: `m${Date.now() + 1}`,
+          role: "assistant",
+          content: "I'm in offline mode — start the FastAPI backend at localhost:8000 for live responses.",
+          timestamp: Date.now(),
+        });
       }, 700);
+    } else {
+      // Failsafe timeout
+      setTimeout(() => setTyping(false), 12000);
     }
   };
 
