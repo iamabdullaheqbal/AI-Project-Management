@@ -10,7 +10,7 @@ from core.security import get_current_user, verify_project_access, verify_task_a
 from models.task import Task
 from models.user import User
 from schemas.task import BulkScoreRequest, PriorityBreakdown, PriorityDetail, TaskCreate, TaskOut, TaskUpdate
-from services.rag_service import embed_and_store, remove_task_embeddings
+from services.rag_service import embed_and_store, delete_task_embeddings
 from services.task_service import calculate_priority_score, rescore_project, rescore_task
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ async def update_task(
 
     embed_text = f"{task.title}. {task.description or ''} Status: {task.status}. Tag: {task.tag or ''}."
     try:
-        await remove_task_embeddings(task_id, db)
+        await delete_task_embeddings(task_id, db)
         await embed_and_store(embed_text, task.project_id, db, task_id=task.id, doc_type="task")
     except Exception as exc:
         logger.warning("Re-embedding failed for task %s: %s", task_id, exc)
@@ -125,7 +125,7 @@ async def delete_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    await remove_task_embeddings(task_id, db)
+    await delete_task_embeddings(task_id, db)
     await db.delete(task)
     logger.info("Task deleted: %s by user %s", task_id, current_user.id)
 

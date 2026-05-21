@@ -15,7 +15,8 @@ import models.chat_message  # noqa: F401
 import models.document_embedding  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Escape % signs for configparser interpolation, but use the raw URL for SQLAlchemy
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

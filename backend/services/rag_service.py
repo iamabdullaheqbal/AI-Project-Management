@@ -1,3 +1,7 @@
+"""
+RAG Service — embed, store, and retrieve project context using
+Mistral mistral-embed (1024-dim) + pgvector cosine similarity.
+"""
 import logging
 from datetime import datetime, timezone
 
@@ -10,15 +14,34 @@ from models.document_embedding import DocumentEmbedding
 
 logger = logging.getLogger(__name__)
 
+# Reuse a single client instance per process (thread-safe, connection-pooled)
+_mistral_client: Mistral | None = None
+
+
+def _get_client() -> Mistral:
+    global _mistral_client
+    if _mistral_client is None:
+        _mistral_client = Mistral(api_key=settings.MISTRAL_API_KEY)
+    return _mistral_client
+
 
 async def embed_text(text_content: str) -> list[float]:
-    """Call Mistral embed API asynchronously and return 1024-dim vector."""
-    async with Mistral(api_key=settings.MISTRAL_API_KEY) as client:
-        response = await client.embeddings.create_async(
-            model="mistral-embed",
-            inputs=[text_content],
-        )
-    return response.data[0].embedding
+    """
+    Call Mistral mistral-embed API asynchronously.
+    Returns a 1024-dimensional float vector.
+    """
+    if not text_content or not text_content.strip():
+        raise ValueError("Cannot embed empty text")
+
+    client = _get_client()
+    response = await client.embeddings.create_async(
+        model="mistral-embed",
+        inputs=text_content,
+    )
+    embedding: list[float] = response.data[0].embedding
+    if len(embedding) != 1024:
+        raise RuntimeError(f"Expected 1024-dim embedding, got {len(embedding)}")
+    return embedding
 
 
 async def embed_and_store(
@@ -28,8 +51,11 @@ async def embed_and_store(
     task_id: str | None = None,
     doc_type: str = "task",
     metadata: dict | None = None,
-) -> DocumentEmbedding:
-    """Embed text and persist to document_embeddings table."""
+) -> int:
+    """
+    Embed text and persist to document_embeddings.
+    Returns the new embedding row id.
+    """
     vector = await embed_text(text_content)
 
     doc = DocumentEmbedding(
@@ -43,14 +69,8 @@ async def embed_and_store(
     )
     db.add(doc)
     await db.flush()
-    logger.info("Stored embedding id=%s for project=%s", doc.id, project_id)
-    return doc
-
-
-async def remove_task_embeddings(task_id: str, db: AsyncSession) -> None:
-    await db.execute(
-        delete(DocumentEmbedding).where(DocumentEmbedding.task_id == task_id)
-    )
+    logger.info("Stored embedding id=%s project=%s doc_type=%s", doc.id, project_id, doc_type)
+    return doc.id
 
 
 async def retrieve_context(
@@ -59,9 +79,16 @@ async def retrieve_context(
     db: AsyncSession,
     top_k: int = 5,
 ) -> list[dict]:
-    """Embed query and run pgvector cosine similarity search."""
-    vector = await embed_text(query)
+    """
+    Embed the query then run pgvector cosine similarity search
+    scoped to the given project.
 
+    Returns list of dicts: {content, metadata, doc_type, similarity}
+    """
+    query_vector = await embed_text(query)
+
+    # pgvector cosine distance operator: <=>
+    # 1 - distance = similarity (higher = more similar)
     sql = text(
         """
         SELECT id, content, doc_type, metadata,
@@ -74,16 +101,71 @@ async def retrieve_context(
     )
     result = await db.execute(
         sql,
-        {"vec": str(vector), "project_id": project_id, "top_k": top_k},
+        {
+            "vec": str(query_vector),
+            "project_id": project_id,
+            "top_k": top_k,
+        },
     )
     rows = result.fetchall()
-    return [
+    docs = [
         {
             "id": row.id,
             "content": row.content,
             "doc_type": row.doc_type,
-            "metadata": row.metadata,
-            "similarity": float(row.similarity),
+            "metadata": row.metadata or {},
+            "similarity": round(float(row.similarity), 4),
         }
         for row in rows
     ]
+    logger.debug(
+        "Retrieved %d docs for project=%s query_len=%d",
+        len(docs), project_id, len(query),
+    )
+    return docs
+
+
+async def delete_task_embeddings(task_id: str, db: AsyncSession) -> None:
+    """Remove all embeddings associated with a task."""
+    await db.execute(
+        delete(DocumentEmbedding).where(DocumentEmbedding.task_id == task_id)
+    )
+    logger.debug("Deleted embeddings for task=%s", task_id)
+
+
+async def update_task_embedding(
+    task: object,
+    project_id: str,
+    db: AsyncSession,
+) -> int:
+    """
+    Delete stale embeddings for a task then re-embed with current content.
+    Returns the new embedding id.
+    """
+    task_id: str = getattr(task, "id")
+    title: str = getattr(task, "title", "") or ""
+    description: str = getattr(task, "description", "") or ""
+    status: str = getattr(task, "status", "") or ""
+    priority_label: str = getattr(task, "priority_label", "") or ""
+    tag: str = getattr(task, "tag", "") or ""
+
+    await delete_task_embeddings(task_id, db)
+
+    text_content = (
+        f"{title}. {description}. "
+        f"Status: {status}. Priority: {priority_label}. Tag: {tag}."
+    ).strip()
+
+    return await embed_and_store(
+        text_content=text_content,
+        project_id=project_id,
+        db=db,
+        task_id=task_id,
+        doc_type="task",
+        metadata={
+            "task_id": task_id,
+            "title": title,
+            "status": status,
+            "priority_label": priority_label,
+        },
+    )
