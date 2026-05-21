@@ -1,0 +1,59 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+    --background: 40 20% 97%;
+    --foreground: 240 15% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 15% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 15% 15%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 15% 96%;
+    --secondary-foreground: 240 12% 20%;
+    --muted: 40 12% 95%;
+    --muted-foreground: 240 8% 50%;
+    --accent: 220 30% 95%;
+    --accent-foreground: 240 20% 25%;
+    --destructive: 14 80% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 45% 50%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 80% 60%;
+    --warning-foreground: 38 50% 20%;
+    --border: 40 10% 90%;
+    --input: 40 10% 91%;
+    --ring: 221 83% 53%;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 240 12% 20%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 25% 96%;
+    --sidebar-accent-foreground: 240 20% 25%;
+    --sidebar-border: 40 10% 91%;
+    --sidebar-ring: 221 83% 53%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply bg-background text-foreground font-sans;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+}
+
+@layer utilities {
+  .page-fade {
+    animation: pageFade 0.35s ease-out both;
+  }
+}
